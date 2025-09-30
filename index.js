@@ -1,234 +1,661 @@
-const express = require("express");
-const cors = require("cors");
-require("dotenv").config();
-const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
-const admin = require("firebase-admin");
-const verifyFirebaseJWT = require("./verifyFirebaseJWT");
+const dotenv = require('dotenv');
+const express = require('express');
+const cors = require('cors');
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
+dotenv.config();
+const  admin = require("firebase-admin");
+
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY); 
 
 const app = express();
+
+// Port
 const port = process.env.PORT || 5000;
 
-// Middleware
+// Middlewares
 app.use(cors());
 app.use(express.json());
 
-// Firebase Admin Setup
-const serviceAccount = require("./firebase-admin.json");
+
+const serviceAccount = require('./firebase-admin.json');
+
 admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
+  credential: admin.credential.cert(serviceAccount)
 });
+
+console.log("Firebase Admin Initialized Successfully");
+
 
 // MongoDB Setup
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.klnjmif.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
 const client = new MongoClient(uri, {
-  serverApi: { version: ServerApiVersion.v1, strict: true, deprecationErrors: true },
+  serverApi: {
+    version: ServerApiVersion.v1,
+    strict: true,
+    deprecationErrors: true,
+  }
 });
 
 async function run() {
   try {
-    await client.connect();
-    console.log(" MongoDB connected");
+    // await client.connect();
+    const db = client.db('sportsDB');
 
-    const db = client.db("sportsDB");
+    const usersCollection = db.collection('users');
+    const courtsCollection = db.collection('courts');
+    const bookingsCollection = db.collection('bookings');
+    const paymentsCollection = db.collection('payments');
+    const couponsCollection = db.collection('coupons');
+    const announcementsCollection = db.collection('announcements');
+    const ratingsCollection = db.collection('ratings');    
 
-    const courtsCollection = db.collection("courts");
-    const bookingsCollection = db.collection("bookings");
-    const usersCollection = db.collection("users");
-    const couponsCollection = db.collection("coupons");
-    const announcementsCollection = db.collection("announcements");
-    const paymentsCollection = db.collection("payments");
+    // ----------------- Custom Middleware --------------
+    
+    // FB Token Verify
+    const verifyFBToken = async (req, res, next) => {
+      const token = req?.headers?.authorization?.split(' ')[1];
 
-    // ---------------- COURTS ----------------
-    app.post("/courts", verifyFirebaseJWT, async (req, res) => {
-      if (req.user.email !== process.env.ADMIN_EMAIL) return res.status(403).send({ message: "Admins only" });
+      if (!token) {
+        return res.status(401).send({message: 'unauthorized Access!'});
+      }
 
-      const { image, type, slots, price } = req.body;
-      const court = { image, type, slots, price: Number(price), createdAt: new Date() };
-      const result = await courtsCollection.insertOne(court);
+      try{
+        const decoded = await admin.auth().verifyIdToken(token);
+        req.decoded = decoded;
+        next()
+      }
+      catch(error) {
+        return res.status(403).send({ message: 'forbidden access' })
+      }
+    }
+
+    // // Verify Admin
+    // const verifyAdmin = async (req, res, next) => {
+    //   const email = req.decoded.email;
+    //   const user = await usersCollection.findOne({email});
+    //   if (user.role !== 'admin') {
+    //     return res.status(403).send({ message: 'forbidden access' });
+    //   }
+    //   next();
+    // }
+
+
+    // --------------Users All API Here-------------
+    app.post('/users', async (req, res) => {
+        const userInfo = req.body;
+        const {email} = req.body;
+
+        if (!email) {
+            return res.status(400).json({ message: 'Email is required' });
+        }
+
+          const existingUser = await usersCollection.findOne({ email });
+
+            if (existingUser) {
+                return res.status(200).json({ message: 'User already exists' });
+            }
+
+        const result = await usersCollection.insertOne(userInfo);
+        res.send(result);
+    });
+
+    // Get users Count
+    app.get("/api/users/count", async (req, res) => {
+        const totalCount = await usersCollection.countDocuments();
+        res.send({ totalUsers: totalCount });
+    });    
+
+    // ------------Get User--------
+    app.get('/users', verifyFBToken, async(req, res) => {
+        const { search, email } = req.query;
+        let query = {};
+         if (email) {
+            query.email = email;
+         }
+
+        else if(search){
+            query = {
+                $or: [
+                    { name: { $regex: search, $options: 'i' }},
+                    { email: { $regex: search, $options: 'i' }},
+                ]
+            };
+        };
+        const users = await usersCollection
+        .find(query)
+        .sort({ createdAt: -1 })
+        .toArray();
+        res.send(users)
+    });
+
+    // Get User Role
+    app.get('/users/:email/role', verifyFBToken, async (req, res) => {
+      const email = req.params.email;
+
+      if (!email) {
+        return res.status(400).send({ message: "Email is required" });
+      }
+
+      const user = await usersCollection
+      .findOne({email});
+
+      if (!user) {
+         return res.status(404).send({ message: "User not found" });
+      }
+
+      res.send({ role: user.role || "user" })
+    })
+
+// Update user by email (PATCH)
+app.patch("/users/:email", async (req, res) => {
+  const email = req.params.email;
+  const updateData = { ...req.body };
+
+  if (!email) return res.status(400).send({ message: "Email is required" });
+
+  // Prevent updating _id
+  if (updateData._id) delete updateData._id;
+
+  try {
+    const result = await usersCollection.updateOne(
+      { email },
+      { $set: updateData }
+    );
+
+    if (result.matchedCount === 0) {
+      return res.status(404).send({ message: "User not found" });
+    }
+
+    const updatedUser = await usersCollection.findOne({ email });
+    res.send(updatedUser);
+  } catch (error) {
+    console.error(error);
+    res.status(500).send({ message: "Server error" });
+  }
+});
+
+
+
+
+
+   
+   // Get all members
+app.get('/members', verifyFBToken, async (req, res) => {
+  const { search } = req.query;
+
+  const query = {
+    role: "member", 
+    ...(search && { name: { $regex: search, $options: "i" } })
+  };
+
+  const members = await usersCollection
+    .find(query)
+    .sort({ memberSince: -1 })
+    .toArray();
+
+  res.send(members);
+});
+
+
+
+// Delete a member
+app.delete('/members/:id', verifyFBToken, async (req, res) => {
+  const id = req.params.id;
+  const result = await usersCollection.deleteOne({ _id: new ObjectId(id) });
+  res.send(result);
+});
+
+
+    // ------------- All Bookings API --------------
+    // Post Booking
+    app.post('/bookings', verifyFBToken, async(req, res) => {
+      const booking = req.body;
+
+        // Validation
+        const requiredFields = ['userEmail', 'courtId', 'courtTitle', 'courtType', 'date', 'slots', 'price'];
+        const missingField = requiredFields.find(field => !booking[field]);
+
+        if (missingField) {
+          return res.status(400).json({ message: `Missing field: ${missingField}` });
+        }
+
+        booking.status = 'pending';
+        booking.createdAt = new Date().toISOString();
+
+      const result = await bookingsCollection.insertOne(booking);
+      res.send(result)
+    });
+
+
+app.get("/api/bookings/count", async (req, res) => {
+    const totalCount = await bookingsCollection.countDocuments();
+    res.send({ totalBookings: totalCount });
+});
+
+
+    app.get("/api/bookings/count/:email", async (req, res) => {
+      try {
+        const email = req.params.email;
+        const userCount = await bookingsCollection.countDocuments({ userEmail: email });
+        res.json({ userEmail: email, totalBookings: userCount });
+      } catch (error) {
+        res.status(500).json({ error: "Failed to fetch user bookings" });
+      }
+    });    
+
+    // Get bookings
+    app.get('/bookings', verifyFBToken, async(req, res)=>{
+      const {email, status,search} = req.query;
+
+      let query = {};
+      if (email) {
+        query.userEmail = email;
+      };
+      if (status) {
+        query.status=status;
+      };
+      if (search) {
+            query = {
+            courtTitle: { $regex: search, $options: 'i' }
+            };
+      }
+
+      const result = await bookingsCollection
+      .find(query)
+      .sort({ date: -1 })
+      .toArray();
       res.send(result);
     });
 
+// GET /api/bookings/pending/total
+app.get("/api/bookings/pending/total", async (req, res) => {
+  try {
+    const { role, email } = req.query; 
+
+    const filter = role === "admin" ? { status: "pending" } : { status: "pending", userEmail: email };
+
+    const pendingBookings = await bookingsCollection.find(filter).toArray();
+
+    const totalPending = pendingBookings.length;
+
+    res.send({ totalPending });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send({ error: "Failed to fetch total pending bookings" });
+  }
+});
+
+// GET /api/bookings/approved/total
+app.get("/api/bookings/approved/total", async (req, res) => {
+  try {
+    const { role, email } = req.query;
+
+    const filter = role === "admin" ? { status: "approved" } : { status: "approved", userEmail: email };
+
+    const approvedBookings = await bookingsCollection.find(filter).toArray();
+
+    const totalApproved = approvedBookings.length;
+
+    res.send({ totalApproved });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send({ error: "Failed to fetch total Approved bookings" });
+  }
+});
+
+
+// GET /api/bookings/approved/total
+app.get("/api/bookings/confirmed/total", async (req, res) => {
+  try {
+    const { role, email } = req.query; 
+    
+    const filter = role === "admin" ? { status: "confirmed" } : { status: "confirmed", userEmail: email };
+
+    const confirmedBookings = await bookingsCollection.find(filter).toArray();
+
+    const totalConfirmed = confirmedBookings.length;
+
+    res.send({ totalConfirmed });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send({ error: "Failed to fetch total Approved bookings" });
+  }
+});
+
+
+
+    // Get single Booking
+    app.get('/bookings/:id', verifyFBToken, async (req, res) => {
+      const id = req.params.id;
+      const result = await bookingsCollection.findOne({_id: new ObjectId(id)});
+      res.send(result)
+    })
+
+    // Update Booking Status
+// Update Booking Status + Promote User to Member if approved
+// Update Booking Status + Promote User to Member if approved
+app.patch('/bookings/:id', verifyFBToken, async (req, res) => {
+  const id = req.params.id;
+  const { status, email } = req.body;
+
+  const filter = { _id: new ObjectId(id) };
+  const updatedDocs = { $set: { status } };
+
+  const result = await bookingsCollection.updateOne(filter, updatedDocs);
+
+  // Booking approved হলে user কে member বানানো
+  let userResult = null;
+  if (status === 'approved') {
+    userResult = await usersCollection.updateOne(
+      { email },
+      {
+        $set: {
+          role: 'member',
+          memberSince: new Date().toISOString(),
+        },
+      }
+    );
+  }
+
+  res.send({
+    bookingUpdate: result,
+    userUpdate: userResult,
+  });
+});
+
+
+
+    // Delete Bookings
+    app.delete('/bookings/:id', verifyFBToken, async(req, res) => {
+      const id = req.params.id;
+      const filter = { _id: new ObjectId(id) };
+      const result = await bookingsCollection.deleteOne(filter);
+      res.send(result);
+    })
+
+    // ---------- All Courts API here -----------------
+
+    // Courts Count
+    app.get('/courtsCount', async(req, res) => {
+      const result = await courtsCollection.estimatedDocumentCount();
+      res.send({totalCourtsCount: result})
+    })
+
+    // Post Courts
+    app.post('/courts', verifyFBToken,  async(req, res) => {
+      const courtData = req.body;
+      const result = await courtsCollection.insertOne(courtData);
+      res.send(result)
+    })
+
+    // Get Courts
     app.get("/courts", async (req, res) => {
       const courts = await courtsCollection.find().toArray();
       res.send(courts);
     });
 
-    app.get("/courts/:id", async (req, res) => {
-      const court = await courtsCollection.findOne({ _id: new ObjectId(req.params.id) });
-      res.send(court);
-    });
-
-    app.patch("/courts/:id", verifyFirebaseJWT, async (req, res) => {
-      if (req.user.email !== process.env.ADMIN_EMAIL) return res.status(403).send({ message: "Admins only" });
-
-      const { image, type, slots, price } = req.body;
-      const result = await courtsCollection.updateOne(
-        { _id: new ObjectId(req.params.id) },
-        { $set: { image, type, slots, price: Number(price) } }
-      );
-      res.send(result);
-    });
-
-    app.delete("/courts/:id", verifyFirebaseJWT, async (req, res) => {
-      if (req.user.email !== process.env.ADMIN_EMAIL) return res.status(403).send({ message: "Admins only" });
-
-      const result = await courtsCollection.deleteOne({ _id: new ObjectId(req.params.id) });
-      res.send(result);
-    });
-
-    // ---------------- BOOKINGS ----------------
-    app.post("/bookings", verifyFirebaseJWT, async (req, res) => {
-      const booking = req.body;
-      booking.userEmail = req.user.email;
-      booking.userId = req.user.uid;
-      booking.status = "pending";
-      booking.createdAt = new Date();
-      const result = await bookingsCollection.insertOne(booking);
-      res.send(result);
-    });
-
-    app.get("/bookings", verifyFirebaseJWT, async (req, res) => {
-      const { status } = req.query;
-      let query = {};
-      if (req.user.email === process.env.ADMIN_EMAIL) {
-        if (status) query.status = status;
-      } else {
-        query.userEmail = req.user.email;
-        if (status) query.status = status;
-      }
-      const bookings = await bookingsCollection.find(query).toArray();
-      res.send(bookings);
-    });
-
-    app.delete("/bookings/:id", verifyFirebaseJWT, async (req, res) => {
-      const booking = await bookingsCollection.findOne({ _id: new ObjectId(req.params.id) });
-      if (!booking) return res.status(404).send({ message: "Booking not found" });
-      if (booking.userEmail !== req.user.email && req.user.email !== process.env.ADMIN_EMAIL)
-        return res.status(403).send({ message: "Forbidden" });
-
-      const result = await bookingsCollection.deleteOne({ _id: new ObjectId(req.params.id) });
-      res.send(result);
-    });
-
-    app.patch("/bookings/:id/approve", verifyFirebaseJWT, async (req, res) => {
-      if (req.user.email !== process.env.ADMIN_EMAIL) return res.status(403).send({ message: "Admins only" });
-
+    // Update Courts
+    app.patch('/courts/:id', verifyFBToken,  async (req, res) => {
       const id = req.params.id;
-      const bookingResult = await bookingsCollection.updateOne(
-        { _id: new ObjectId(id) },
-        { $set: { status: "approved" } }
-      );
-
-      const booking = await bookingsCollection.findOne({ _id: new ObjectId(id) });
-      if (booking) {
-        await usersCollection.updateOne(
-          { email: booking.userEmail },
-          { $set: { role: "member", isMember: true } },
-          { upsert: true }
-        );
+      const filter = {_id: new ObjectId(id)};
+      const updateData = req.body;
+      const updatedDocs = {
+        $set: updateData,
       }
-      res.send({ bookingResult, message: "Booking approved and user marked as member" });
+      const result = await courtsCollection.updateOne(filter, updatedDocs);
+      res.send(result)
     });
 
-    app.patch("/bookings/:id/reject", verifyFirebaseJWT, async (req, res) => {
-      if (req.user.email !== process.env.ADMIN_EMAIL) return res.status(403).send({ message: "Admins only" });
-
+    // Delete Courts
+    app.delete('/courts/:id', verifyFBToken,  async (req, res) => {
       const id = req.params.id;
-      const result = await bookingsCollection.updateOne(
-        { _id: new ObjectId(id) },
-        { $set: { status: "rejected" } }
-      );
+      const result = await courtsCollection.deleteOne({_id: new ObjectId(id)});
       res.send(result);
+    })
+
+    // ---------- Coupons All API here -------------
+
+    // Post
+    app.post('/coupons', verifyFBToken,  async(req, res) => {
+      const couponData = req.body;
+      const result = await couponsCollection.insertOne(couponData);
+      res.send(result)
+    })
+
+    // Get Coupons
+    app.get('/coupons', async (req, res) => {
+      const result = await couponsCollection
+      .find()
+      .toArray();
+      res.send(result)
+    })
+
+   
+    app.patch('/coupons/:id', verifyFBToken,  async (req, res) => {
+      const id = req.params.id;
+      const updateData = req.body;
+      const filter = { _id: new ObjectId(id) };
+      const updatedDocs = {
+        $set: updateData
+      };
+      const result = await couponsCollection.updateOne(filter, updatedDocs);
+      res.send(result)
     });
 
-    // ---------------- USERS ----------------
-    app.post("/users", verifyFirebaseJWT, async (req, res) => {
-      const user = req.body;
-      user.createdAt = new Date();
-      user.role = "user";
-      user.isMember = false;
-      const result = await usersCollection.insertOne(user);
+    // Delete
+    app.delete('/coupons/:id', verifyFBToken,  async(req, res) => {
+      const id = req.params.id;
+      const result = await couponsCollection.deleteOne({_id: new ObjectId(id)});
       res.send(result);
-    });
+    })
 
-    app.get("/users", verifyFirebaseJWT, async (req, res) => {
-      if (req.user.email !== process.env.ADMIN_EMAIL) return res.status(403).send({ message: "Admins only" });
+    // Validate Coupon
+    app.post('/validate-coupon', verifyFBToken, async (req, res) => {
+      const {code} = req.body;
 
-      const users = await usersCollection.find().toArray();
-      res.send(users);
-    });
+      const coupon = await couponsCollection.findOne({code});
 
-    app.get("/users/:email", verifyFirebaseJWT, async (req, res) => {
-      const user = await usersCollection.findOne({ email: req.params.email });
-      res.send(user);
-    });
-
-    app.patch("/users/:id", verifyFirebaseJWT, async (req, res) => {
-      if (req.user.email !== process.env.ADMIN_EMAIL) return res.status(403).send({ message: "Admins only" });
-
-      const { role } = req.body;
-      const result = await usersCollection.updateOne(
-        { _id: new ObjectId(req.params.id) },
-        { $set: { role } }
-      );
-      res.send(result);
-    });
-
-    app.delete("/users/:id", verifyFirebaseJWT, async (req, res) => {
-      if (req.user.email !== process.env.ADMIN_EMAIL) return res.status(403).send({ message: "Admins only" });
-
-      const result = await usersCollection.deleteOne({ _id: new ObjectId(req.params.id) });
-      res.send(result);
-    });
-
-
-    // ---------------- PAYMENTS ----------------
-    app.post("/payments", verifyFirebaseJWT, async (req, res) => {
-      const payment = { ...req.body, createdAt: new Date(), userEmail: req.user.email };
-      const result = await paymentsCollection.insertOne(payment);
-
-      // update booking → confirmed
-      if (payment.bookingId) {
-        await bookingsCollection.updateOne(
-          { _id: new ObjectId(payment.bookingId) },
-          { $set: { status: "confirmed" } }
-        );
+      if (!coupon) {
+        return res.send({ valid: false });
       }
-      res.send(result);
+
+      return res.send({
+      valid: true,
+      discountAmount: coupon.discountAmount,
     });
 
-    app.get("/payments", verifyFirebaseJWT, async (req, res) => {
-      let query = {};
-      if (req.user.email !== process.env.ADMIN_EMAIL) {
-        query.userEmail = req.user.email;
-      }
-      const payments = await paymentsCollection.find(query).toArray();
-      res.send(payments);
     });
 
-    // ---------------- ADMIN STATS ----------------
-    app.get("/admin/stats", verifyFirebaseJWT, async (req, res) => {
-      if (req.user.email !== process.env.ADMIN_EMAIL) return res.status(403).send({ message: "Admins only" });
 
-      const totalCourts = await courtsCollection.estimatedDocumentCount();
-      const totalUsers = await usersCollection.estimatedDocumentCount();
-      const totalMembers = await usersCollection.countDocuments({ role: "member" });
+  // ---------------- Payments Api here ------------
 
-      res.send({ totalCourts, totalUsers, totalMembers });
+// Create Payment Intent API
+app.post('/create-payment-intent', verifyFBToken, async (req, res) => {
+  try {
+    const { price } = req.body;
+
+    // Validate price
+    if (!price || price <= 0) {
+      return res.status(400).send({ error: 'Invalid price' });
+    }
+
+    // Convert to smallest currency unit (৳ → poisha)
+    const amount = parseInt(price * 100);
+
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount,
+      currency: 'bdt', // or 'usd' depending on your currency
+      payment_method_types: ['card'],
     });
 
+    res.send({
+      clientSecret: paymentIntent.client_secret,
+    });
+  } catch (error) {
+    console.error('Error creating payment intent:', error);
+    res.status(500).send({ error: 'Failed to create payment intent' });
+  }
+});
+
+// Payment History
+
+// Post
+app.post('/payments', verifyFBToken, async(req, res) => {
+  const paymentData = req.body;
+  paymentData.status = "paid";
+
+  const result = await paymentsCollection.insertOne(paymentData);
+
+  // update Booking Status
+  const bookingId = paymentData.bookingId;
+  const filter = {_id: new ObjectId(bookingId)};
+  const update = {$set: {status: 'confirmed'}};
+  const bookingResult = await bookingsCollection.updateOne(filter, update);
+
+  res.send(result, bookingResult) 
+});
+
+
+// GET /api/payments/total
+app.get("/api/payments/total", async (req, res) => {
+  try {
+    const { role, email } = req.query;
+
+    const filter = role === "admin" ? {} : { email };
+    const payments = await paymentsCollection.find(filter).toArray();
+    const totalPayments = payments.reduce((sum, p) => sum + p.price, 0);
+
+    res.send({ totalPayments });
   } catch (err) {
-    console.error(" MongoDB connection error:", err);
+    console.error(err);
+    res.status(500).send({ error: "Failed to fetch total payments" });
+  }
+});
+
+
+// GET /api/paymentsLength/total
+app.get("/api/payments/length", async (req, res) => {
+  try {
+    const { role, email } = req.query;
+
+    const filter = role === "admin" ? {} : { email };
+    const payments = await paymentsCollection.find(filter).toArray();
+    const totalPaymentsLength = payments.length;
+
+    res.send({ totalPaymentsLength });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send({ error: "Failed to fetch total payments Length" });
+  }
+});
+
+
+
+// Get Payments History
+app.get('/payments', verifyFBToken, async (req, res) => {
+  const { email } = req.query;
+  const payments = await paymentsCollection
+  .find({ email })
+  .sort({ date: -1 })
+  .toArray();
+  res.send(payments);
+});
+
+
+    // Send a ping to confirm a successful connection
+    // await client.db("admin").command({ ping: 1 });
+    console.log("Pinged your deployment. You successfully connected to MongoDB!");
+
+// Get counter Data
+app.get('/admin-stats', verifyFBToken,  async(req, res) => {
+  const email = req.query.email;
+  const user = await usersCollection.findOne({email});
+
+  if (user?.role !== 'admin') {
+     return res.status(403).send({ message: 'forbidden' });
+  }
+
+  const totalCourts = await courtsCollection.estimatedDocumentCount();
+  const totalUsers = await usersCollection.estimatedDocumentCount();
+  const totalMembers = await usersCollection.countDocuments({role: 'member'});
+  res.send({ totalCourts, totalUsers, totalMembers });
+});
+
+
+
+
+// Example test route
+    app.get('/', (req, res) => {
+      res.send('SCMS Server is Running');
+    });
+
+
+// Aggregation Code
+app.get("/popular-courts", async (req, res) => {
+  try {
+    const result = await ratingsCollection.aggregate([
+      {
+        $group: {
+          _id: "$courtId", // this is a string
+          averageRating: { $avg: "$rating" },
+          totalRatings: { $sum: 1 },
+        },
+      },
+      {
+        $sort: { averageRating: -1, totalRatings: -1 },
+      },
+      {
+        $limit: 6,
+      },
+      {
+        $addFields: {
+          courtObjectId: { $toObjectId: "$_id" }, // convert courtId string to ObjectId
+        },
+      },
+      {
+        $lookup: {
+          from: "courts",
+          localField: "courtObjectId",
+          foreignField: "_id",
+          as: "courtDetails",
+        },
+      },
+      {
+        $unwind: "$courtDetails",
+      },
+      {
+        $project: {
+          _id: "$courtDetails._id",
+          name: "$courtDetails.name",
+          type: "$courtDetails.type",
+          image: "$courtDetails.image",
+          location: "$courtDetails.location",
+          pricePerSession: "$courtDetails.pricePerSession",
+          averageRating: 1,
+          totalRatings: 1,
+        },
+      },
+    ]).toArray();
+
+    res.send(result);
+  } catch (error) {
+    console.error("Error fetching popular courts:", error);
+    res.status(500).send({ error: "Failed to fetch popular courts" });
+  }
+});
+
+
+
+
+
+// -------------------------------------
+  } finally {
+    // keep connection alive
   }
 }
 
 run().catch(console.dir);
 
-// Test route
-app.get("/", (req, res) => {
-  res.send("🏆 Sports Club Management System API running");
-});
-
 app.listen(port, () => {
-  console.log(`🚀 Server running on port ${port}`);
+  console.log(`Server running on port ${port}`);
 });
