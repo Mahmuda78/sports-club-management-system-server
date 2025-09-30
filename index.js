@@ -590,59 +590,7 @@ app.get('/admin-stats', verifyFBToken,  async(req, res) => {
     });
 
 
-// Aggregation Code
-app.get("/popular-courts", async (req, res) => {
-  try {
-    const result = await ratingsCollection.aggregate([
-      {
-        $group: {
-          _id: "$courtId", // this is a string
-          averageRating: { $avg: "$rating" },
-          totalRatings: { $sum: 1 },
-        },
-      },
-      {
-        $sort: { averageRating: -1, totalRatings: -1 },
-      },
-      {
-        $limit: 6,
-      },
-      {
-        $addFields: {
-          courtObjectId: { $toObjectId: "$_id" }, // convert courtId string to ObjectId
-        },
-      },
-      {
-        $lookup: {
-          from: "courts",
-          localField: "courtObjectId",
-          foreignField: "_id",
-          as: "courtDetails",
-        },
-      },
-      {
-        $unwind: "$courtDetails",
-      },
-      {
-        $project: {
-          _id: "$courtDetails._id",
-          name: "$courtDetails.name",
-          type: "$courtDetails.type",
-          image: "$courtDetails.image",
-          location: "$courtDetails.location",
-          pricePerSession: "$courtDetails.pricePerSession",
-          averageRating: 1,
-          totalRatings: 1,
-        },
-      },
-    ]).toArray();
 
-    res.send(result);
-  } catch (error) {
-    console.error("Error fetching popular courts:", error);
-    res.status(500).send({ error: "Failed to fetch popular courts" });
-  }
-});
 
 
 
