@@ -476,16 +476,36 @@ app.patch('/bookings/:id', verifyFBToken, async (req, res) => {
 // Create Payment Intent API
 app.post('/create-payment-intent', verifyFBToken, async (req, res) => {
   try {
-    const { price } = req.body;
+    const { bookingId, couponCode } = req.body;
 
-    // Validate price
-    if (!price || price <= 0) {
-      return res.status(400).send({ error: 'Invalid price' });
+    if (!bookingId) {
+      return res.status(400).send({ error: 'Booking ID is required' });
     }
 
-    
-    const amount = parseInt(price * 100);
+    // ১. Booking data fetch
+    const booking = await bookingsCollection.findOne({ _id: new ObjectId(bookingId) });
+    if (!booking) return res.status(404).send({ error: 'Booking not found' });
 
+    let finalPrice = booking.price;
+
+    // ২. Coupon validate করা
+    if (couponCode) {
+      const coupon = await couponsCollection.findOne({ code: couponCode });
+      if (coupon && coupon.discountAmount) {
+        const discountPercentage = coupon.discountAmount;
+        const discountAmount = (booking.price * discountPercentage) / 100;
+        finalPrice = booking.price - discountAmount;
+      }
+    }
+
+    // ৩. Price validate
+    if (!finalPrice || finalPrice <= 0) {
+      return res.status(400).send({ error: 'Invalid final price' });
+    }
+
+    const amount = parseInt(finalPrice * 100); // Stripe expects cents
+
+    // ৪. Stripe PaymentIntent create
     const paymentIntent = await stripe.paymentIntents.create({
       amount,
       currency: 'usd', 
@@ -494,12 +514,15 @@ app.post('/create-payment-intent', verifyFBToken, async (req, res) => {
 
     res.send({
       clientSecret: paymentIntent.client_secret,
+      finalPrice, // frontend এ দেখানোর জন্য
     });
+
   } catch (error) {
     console.error('Error creating payment intent:', error);
     res.status(500).send({ error: 'Failed to create payment intent' });
   }
 });
+
 
 // Payment History
 
