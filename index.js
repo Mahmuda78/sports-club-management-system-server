@@ -59,6 +59,8 @@ async function run() {
         return res.status(401).send({message: 'unauthorized Access!'});
       }
 
+
+
       try{
         const decoded = await admin.auth().verifyIdToken(token);
         req.decoded = decoded;
@@ -586,6 +588,7 @@ app.get('/payments', verifyFBToken, async (req, res) => {
   .sort({ date: -1 })
   .toArray();
   res.send(payments);
+    console.log('Payments found:', payments);
 });
 
 
