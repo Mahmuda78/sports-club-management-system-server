@@ -592,6 +592,44 @@ app.get('/payments', verifyFBToken, async (req, res) => {
 });
 
 
+// ---------- Announcements API ------------
+
+// POST API
+app.post('/announcements', verifyFBToken,  async(req, res) => {
+  const data = req.body;
+  const result = await announcementsCollection.insertOne(data);
+  res.send(result);
+})
+
+// GET API
+app.get('/announcements', verifyFBToken, async(req, res) => {
+  const result = await announcementsCollection
+  .find()
+  .sort({ postAt: -1 })
+  .toArray();
+  res.send(result);
+});
+
+// Patch API
+app.patch('/announcements/:id', verifyFBToken,  async (req, res) => {
+  const id = req.params.id;
+  const updateData = req.body;
+  const filter = {_id: new ObjectId(id)};
+  const updatedDocs = {
+    $set: updateData,
+  };
+
+  const result = await announcementsCollection.updateOne(filter, updatedDocs);
+  res.send(result)
+});
+
+// Delete API
+app.delete('/announcements/:id', verifyFBToken,  async (req, res) => {
+  const id = req.params.id;
+  const result = await announcementsCollection.deleteOne({_id: new ObjectId(id)});
+  res.send(result)
+});
+
     // Send a ping to confirm a successful connection
     // await client.db("admin").command({ ping: 1 });
     console.log("Pinged your deployment. You successfully connected to MongoDB!");
