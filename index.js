@@ -336,12 +336,15 @@ app.get("/api/bookings/confirmed/total", async (req, res) => {
 // Update Booking Status + Promote User to Member if approved
 app.patch('/bookings/:id', verifyFBToken, async (req, res) => {
   const id = req.params.id;
-  const { status, email } = req.body;
+  const { status, email, discountedPrice } = req.body; // 👈 discount price নিতে হবে
 
   const filter = { _id: new ObjectId(id) };
-  const updatedDocs = { $set: { status } };
+  const updateFields = {};
 
-  const result = await bookingsCollection.updateOne(filter, updatedDocs);
+  if (status) updateFields.status = status;
+  if (discountedPrice !== undefined) updateFields.discountedPrice = discountedPrice; // 👈 save করবো
+
+  const result = await bookingsCollection.updateOne(filter, { $set: updateFields });
 
   // Booking approved হলে user কে member বানানো
   let userResult = null;
@@ -362,6 +365,7 @@ app.patch('/bookings/:id', verifyFBToken, async (req, res) => {
     userUpdate: userResult,
   });
 });
+
 
 
 
@@ -479,12 +483,12 @@ app.post('/create-payment-intent', verifyFBToken, async (req, res) => {
       return res.status(400).send({ error: 'Invalid price' });
     }
 
-    // Convert to smallest currency unit (৳ → poisha)
+    
     const amount = parseInt(price * 100);
 
     const paymentIntent = await stripe.paymentIntents.create({
       amount,
-      currency: 'bdt', // or 'usd' depending on your currency
+      currency: 'usd', 
       payment_method_types: ['card'],
     });
 
