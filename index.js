@@ -408,7 +408,7 @@ app.patch('/bookings/:id', verifyFBToken, async (req, res) => {
     })
 
     // Post Courts
-    app.post('/courts', verifyFBToken,  async(req, res) => {
+    app.post('/courts', verifyFBToken, verifyAdmin, async(req, res) => {
       const courtData = req.body;
       const result = await courtsCollection.insertOne(courtData);
       res.send(result)
@@ -421,7 +421,7 @@ app.patch('/bookings/:id', verifyFBToken, async (req, res) => {
     });
 
     // Update Courts
-    app.patch('/courts/:id', verifyFBToken,  async (req, res) => {
+    app.patch('/courts/:id', verifyFBToken, verifyAdmin, async (req, res) => {
       const id = req.params.id;
       const filter = {_id: new ObjectId(id)};
       const updateData = req.body;
@@ -433,7 +433,7 @@ app.patch('/bookings/:id', verifyFBToken, async (req, res) => {
     });
 
     // Delete Courts
-    app.delete('/courts/:id', verifyFBToken,  async (req, res) => {
+    app.delete('/courts/:id', verifyFBToken, verifyAdmin,  async (req, res) => {
       const id = req.params.id;
       const result = await courtsCollection.deleteOne({_id: new ObjectId(id)});
       res.send(result);
@@ -442,7 +442,7 @@ app.patch('/bookings/:id', verifyFBToken, async (req, res) => {
     // ---------- Coupons All API here -------------
 
     // Post
-    app.post('/coupons', verifyFBToken,  async(req, res) => {
+    app.post('/coupons', verifyFBToken, verifyAdmin, async(req, res) => {
       const couponData = req.body;
       const result = await couponsCollection.insertOne(couponData);
       res.send(result)
@@ -457,7 +457,7 @@ app.patch('/bookings/:id', verifyFBToken, async (req, res) => {
     })
 
    
-    app.patch('/coupons/:id', verifyFBToken,  async (req, res) => {
+    app.patch('/coupons/:id', verifyFBToken, verifyAdmin,  async (req, res) => {
       const id = req.params.id;
       const updateData = req.body;
       const filter = { _id: new ObjectId(id) };
@@ -469,7 +469,7 @@ app.patch('/bookings/:id', verifyFBToken, async (req, res) => {
     });
 
     // Delete
-    app.delete('/coupons/:id', verifyFBToken,  async(req, res) => {
+    app.delete('/coupons/:id', verifyFBToken, verifyAdmin,   async(req, res) => {
       const id = req.params.id;
       const result = await couponsCollection.deleteOne({_id: new ObjectId(id)});
       res.send(result);
@@ -671,14 +671,14 @@ app.get("/api/bookings/confirmed-paid", async (req, res) => {
 
 
 // POST API
-app.post('/announcements', verifyFBToken,  async(req, res) => {
+app.post('/announcements', verifyFBToken, verifyAdmin,  async(req, res) => {
   const data = req.body;
   const result = await announcementsCollection.insertOne(data);
   res.send(result);
 })
 
 // GET API
-app.get('/announcements', verifyFBToken, async(req, res) => {
+app.get('/announcements', verifyFBToken,  async(req, res) => {
   const result = await announcementsCollection
   .find()
   .sort({ postAt: -1 })
@@ -687,7 +687,7 @@ app.get('/announcements', verifyFBToken, async(req, res) => {
 });
 
 // Patch API
-app.patch('/announcements/:id', verifyFBToken,  async (req, res) => {
+app.patch('/announcements/:id', verifyFBToken,   async (req, res) => {
   const id = req.params.id;
   const updateData = req.body;
   const filter = {_id: new ObjectId(id)};
@@ -700,7 +700,7 @@ app.patch('/announcements/:id', verifyFBToken,  async (req, res) => {
 });
 
 // Delete API
-app.delete('/announcements/:id', verifyFBToken,  async (req, res) => {
+app.delete('/announcements/:id', verifyFBToken, verifyAdmin, async (req, res) => {
   const id = req.params.id;
   const result = await announcementsCollection.deleteOne({_id: new ObjectId(id)});
   res.send(result)
@@ -711,7 +711,7 @@ app.delete('/announcements/:id', verifyFBToken,  async (req, res) => {
     console.log("Pinged your deployment. You successfully connected to MongoDB!");
 
 // Get counter Data
-app.get('/admin-stats', verifyFBToken,  async(req, res) => {
+app.get('/admin-stats', verifyFBToken, verifyAdmin,  async(req, res) => {
   const email = req.query.email;
   const user = await usersCollection.findOne({email});
 
