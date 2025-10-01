@@ -71,15 +71,15 @@ async function run() {
       }
     }
 
-    // // Verify Admin
-    // const verifyAdmin = async (req, res, next) => {
-    //   const email = req.decoded.email;
-    //   const user = await usersCollection.findOne({email});
-    //   if (user.role !== 'admin') {
-    //     return res.status(403).send({ message: 'forbidden access' });
-    //   }
-    //   next();
-    // }
+    // Verify Admin
+    const verifyAdmin = async (req, res, next) => {
+      const email = req.decoded.email;
+      const user = await usersCollection.findOne({email});
+      if (user.role !== 'admin') {
+        return res.status(403).send({ message: 'forbidden access' });
+      }
+      next();
+    }
 
 
     // --------------Users All API Here-------------
@@ -270,59 +270,7 @@ app.get("/api/bookings/count", async (req, res) => {
     });
 
 // GET /api/bookings/pending/total
-app.get("/api/bookings/pending/total", async (req, res) => {
-  try {
-    const { role, email } = req.query; 
 
-    const filter = role === "admin" ? { status: "pending" } : { status: "pending", userEmail: email };
-
-    const pendingBookings = await bookingsCollection.find(filter).toArray();
-
-    const totalPending = pendingBookings.length;
-
-    res.send({ totalPending });
-  } catch (err) {
-    console.error(err);
-    res.status(500).send({ error: "Failed to fetch total pending bookings" });
-  }
-});
-
-// GET /api/bookings/approved/total
-app.get("/api/bookings/approved/total", async (req, res) => {
-  try {
-    const { role, email } = req.query;
-
-    const filter = role === "admin" ? { status: "approved" } : { status: "approved", userEmail: email };
-
-    const approvedBookings = await bookingsCollection.find(filter).toArray();
-
-    const totalApproved = approvedBookings.length;
-
-    res.send({ totalApproved });
-  } catch (err) {
-    console.error(err);
-    res.status(500).send({ error: "Failed to fetch total Approved bookings" });
-  }
-});
-
-
-// GET /api/bookings/approved/total
-app.get("/api/bookings/confirmed/total", async (req, res) => {
-  try {
-    const { role, email } = req.query; 
-    
-    const filter = role === "admin" ? { status: "confirmed" } : { status: "confirmed", userEmail: email };
-
-    const confirmedBookings = await bookingsCollection.find(filter).toArray();
-
-    const totalConfirmed = confirmedBookings.length;
-
-    res.send({ totalConfirmed });
-  } catch (err) {
-    console.error(err);
-    res.status(500).send({ error: "Failed to fetch total Approved bookings" });
-  }
-});
 
 
 
@@ -334,21 +282,20 @@ app.get("/api/bookings/confirmed/total", async (req, res) => {
     })
 
     // Update Booking Status
-// Update Booking Status + Promote User to Member if approved
-// Update Booking Status + Promote User to Member if approved
+
 app.patch('/bookings/:id', verifyFBToken, async (req, res) => {
   const id = req.params.id;
-  const { status, email, discountedPrice } = req.body; // 👈 discount price নিতে হবে
+  const { status, email, discountedPrice } = req.body; 
 
   const filter = { _id: new ObjectId(id) };
   const updateFields = {};
 
   if (status) updateFields.status = status;
-  if (discountedPrice !== undefined) updateFields.discountedPrice = discountedPrice; // 👈 save করবো
+  if (discountedPrice !== undefined) updateFields.discountedPrice = discountedPrice; 
 
   const result = await bookingsCollection.updateOne(filter, { $set: updateFields });
 
-  // Booking approved হলে user কে member বানানো
+
   let userResult = null;
   if (status === 'approved') {
     userResult = await usersCollection.updateOne(
@@ -484,23 +431,23 @@ app.post('/create-payment-intent', verifyFBToken, async (req, res) => {
       return res.status(400).send({ error: 'Booking ID is required' });
     }
 
-    // ১. Booking data fetch
+   
     const booking = await bookingsCollection.findOne({ _id: new ObjectId(bookingId) });
     if (!booking) return res.status(404).send({ error: 'Booking not found' });
 
-    let finalPrice = booking.price;
+    let finalPrice = booking.totalPrice;
 
-    // ২. Coupon validate করা
+    
     if (couponCode) {
       const coupon = await couponsCollection.findOne({ code: couponCode });
       if (coupon && coupon.discountAmount) {
         const discountPercentage = coupon.discountAmount;
-        const discountAmount = (booking.price * discountPercentage) / 100;
-        finalPrice = booking.price - discountAmount;
+        const discountAmount = (booking.totalPrice * discountPercentage) / 100;
+        finalPrice = booking.totalPrice - discountAmount;
       }
     }
 
-    // ৩. Price validate
+    
     if (!finalPrice || finalPrice <= 0) {
       return res.status(400).send({ error: 'Invalid final price' });
     }
@@ -516,7 +463,7 @@ app.post('/create-payment-intent', verifyFBToken, async (req, res) => {
 
     res.send({
       clientSecret: paymentIntent.client_secret,
-      finalPrice, // frontend এ দেখানোর জন্য
+      finalPrice, 
     });
 
   } catch (error) {
@@ -649,7 +596,25 @@ app.get('/admin-stats', verifyFBToken,  async(req, res) => {
   res.send({ totalCourts, totalUsers, totalMembers });
 });
 
+// Make admin
+app.patch('/users/:email/make-admin', verifyFBToken, verifyAdmin, async (req, res) => {
+  const email = req.params.email;
+  const result = await usersCollection.updateOne(
+    { email },
+    { $set: { role: 'admin' } }
+  );
+  res.send(result);
+});
 
+// Remove admin
+app.patch('/users/:email/remove-admin', verifyFBToken, verifyAdmin, async (req, res) => {
+  const email = req.params.email;
+  const result = await usersCollection.updateOne(
+    { email },
+    { $set: { role: 'user' } }
+  );
+  res.send(result);
+});
 
 
 // Example test route
