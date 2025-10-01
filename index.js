@@ -271,7 +271,59 @@ app.get("/api/bookings/count", async (req, res) => {
 
 // GET /api/bookings/pending/total
 
+app.get("/api/bookings/pending/total", async (req, res) => {
+  try {
+    const { role, email } = req.query; 
 
+    const filter = role === "admin" ? { status: "pending" } : { status: "pending", userEmail: email };
+
+    const pendingBookings = await bookingsCollection.find(filter).toArray();
+
+    const totalPending = pendingBookings.length;
+
+    res.send({ totalPending });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send({ error: "Failed to fetch total pending bookings" });
+  }
+});
+
+// GET /api/bookings/approved/total
+app.get("/api/bookings/approved/total", async (req, res) => {
+  try {
+    const { role, email } = req.query;
+
+    const filter = role === "admin" ? { status: "approved" } : { status: "approved", userEmail: email };
+
+    const approvedBookings = await bookingsCollection.find(filter).toArray();
+
+    const totalApproved = approvedBookings.length;
+
+    res.send({ totalApproved });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send({ error: "Failed to fetch total Approved bookings" });
+  }
+});
+
+
+// GET /api/bookings/approved/total
+app.get("/api/bookings/confirmed/total", async (req, res) => {
+  try {
+    const { role, email } = req.query; 
+    
+    const filter = role === "admin" ? { status: "confirmed" } : { status: "confirmed", userEmail: email };
+
+    const confirmedBookings = await bookingsCollection.find(filter).toArray();
+
+    const totalConfirmed = confirmedBookings.length;
+
+    res.send({ totalConfirmed });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send({ error: "Failed to fetch total Approved bookings" });
+  }
+});
 
 
     // Get single Booking
