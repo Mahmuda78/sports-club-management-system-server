@@ -307,23 +307,29 @@ app.get("/api/bookings/approved/total", async (req, res) => {
 });
 
 
+
+
+
+
 // GET /api/bookings/approved/total
 app.get("/api/bookings/confirmed/total", async (req, res) => {
   try {
     const { role, email } = req.query; 
     
-    const filter = role === "admin" ? { status: "confirmed" } : { status: "confirmed", userEmail: email };
+    const filter =
+      role === "admin"
+        ? { status: "confirmed" } 
+        : { status: "confirmed", userEmail: email };
 
-    const confirmedBookings = await bookingsCollection.find(filter).toArray();
-
-    const totalConfirmed = confirmedBookings.length;
+    const totalConfirmed = await bookingsCollection.countDocuments(filter);
 
     res.send({ totalConfirmed });
   } catch (err) {
     console.error(err);
-    res.status(500).send({ error: "Failed to fetch total Approved bookings" });
+    res.status(500).send({ error: "Failed to fetch total confirmed bookings" });
   }
 });
+
 
 
     // Get single Booking
@@ -378,6 +384,7 @@ app.patch('/bookings/:id', verifyFBToken, async (req, res) => {
       res.send(result);
     })
 
+    
     // ---------- All Courts API here -----------------
 
     // Courts Count
@@ -589,6 +596,46 @@ app.get('/payments', verifyFBToken, async (req, res) => {
   res.send(payments);
     console.log('Payments found:', payments);
 });
+
+app.get("/api/bookings/confirmed-paid", async (req, res) => {
+  try {
+    const { search } = req.query;
+
+    const confirmedBookings = await bookingsCollection
+      .find({ status: "confirmed" })
+      .toArray();
+
+    const paidPayments = await paymentsCollection
+      .find({ status: "paid" })
+      .toArray();
+
+    const paidBookingIds = paidPayments.map(p => p.bookingId);
+
+    let finalBookings = confirmedBookings
+      .filter(b => paidBookingIds.includes(b._id.toString()))
+      .map(b => {
+        const payment = paidPayments.find(p => p.bookingId === b._id.toString());
+        return {
+          ...b,
+          amountPaid: payment ? payment.price : 0,
+          transactionId: payment ? payment.transactionId : "N/A",
+          coupon: payment ? payment.coupon || "N/A" : "N/A",
+        };
+      });
+
+    if (search) {
+      finalBookings = finalBookings.filter(b =>
+        (b.courtTitle || "").toLowerCase().includes(search.toLowerCase())
+      );
+    }
+
+    res.send(finalBookings);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send({ error: "Failed to fetch confirmed bookings with payment" });
+  }
+});
+
 
 
 // ---------- Announcements API ------------
