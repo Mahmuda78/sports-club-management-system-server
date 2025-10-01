@@ -269,6 +269,20 @@ app.get("/api/bookings/count", async (req, res) => {
       res.send(result);
     });
 
+
+    app.get("/api/bookings/confirmed", async (req, res) => {
+  try {
+    const email = req.query.email; 
+    const bookings = await bookingsCollection.find({
+      userEmail: email,
+      status: "confirmed",
+    }).toArray();
+
+    res.send(bookings);
+  } catch (err) {
+    res.status(500).send({ error: "Failed to fetch confirmed bookings" });
+  }
+});
 // GET /api/bookings/pending/total
 
 app.get("/api/bookings/pending/total", async (req, res) => {
@@ -478,6 +492,22 @@ app.patch('/bookings/:id', verifyFBToken, async (req, res) => {
 
     });
 
+// Get single user by email
+app.get("/api/users/:email", verifyFBToken, async (req, res) => {
+  const email = req.params.email;
+
+  if (!email) {
+    return res.status(400).send({ message: "Email is required" });
+  }
+
+  const user = await usersCollection.findOne({ email });
+
+  if (!user) {
+    return res.status(404).send({ message: "User not found" });
+  }
+
+  res.send(user);
+});
 
   // ---------------- Payments Api here ------------
 
@@ -511,7 +541,7 @@ app.post('/create-payment-intent', verifyFBToken, async (req, res) => {
       return res.status(400).send({ error: 'Invalid final price' });
     }
 
-    const amount = parseInt(finalPrice * 100); // Stripe expects cents
+    const amount = parseInt(finalPrice * 100); 
 
     // ৪. Stripe PaymentIntent create
     const paymentIntent = await stripe.paymentIntents.create({
@@ -569,7 +599,7 @@ app.get("/api/payments/total", async (req, res) => {
 
 
 // GET /api/paymentsLength/total
-app.get("/api/payments/length", async (req, res) => {
+app.get("/api/payments/length", verifyAdmin, verifyFBToken, async (req, res) => {
   try {
     const { role, email } = req.query;
 
@@ -638,7 +668,7 @@ app.get("/api/bookings/confirmed-paid", async (req, res) => {
 
 
 
-// ---------- Announcements API ------------
+
 
 // POST API
 app.post('/announcements', verifyFBToken,  async(req, res) => {
